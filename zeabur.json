@@ -1,0 +1,12 @@
+{
+  "services": {
+    "web": {
+      "type": "node",
+      "buildCommand": "npm install",
+      "startCommand": "node server.js",
+      "env": {
+        "PORT": "3000"
+      }
+    }
+  }
+}
