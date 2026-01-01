@@ -17,43 +17,67 @@ const dbFile = path.join(__dirname, 'keys.json');
 const adapter = new JSONFile(dbFile);
 const db = new Low(adapter, { keys: [], users: [], programs: [] });
 
-db.read().then(() => {
-  if (!db.data.keys) {
-    db.data.keys = [];
-  }
-  if (!db.data.users) {
-    db.data.users = [];
+let dbInitialized = false;
+
+async function initializeDatabase() {
+  try {
+    await db.read();
+    
+    if (!db.data || typeof db.data !== 'object') {
+      db.data = { keys: [], users: [], programs: [] };
+    }
+    
+    if (!Array.isArray(db.data.keys)) {
+      db.data.keys = [];
+    }
+    
+    if (!Array.isArray(db.data.users)) {
+      db.data.users = [];
+    }
+    
+    if (!Array.isArray(db.data.programs)) {
+      db.data.programs = [];
+    }
+    
+    if (db.data.users.length === 0) {
+      db.data.users.push({
+        id: 1,
+        username: 'xpb',
+        password: 'xpb@04103013'
+      });
+    }
+    
+    if (db.data.programs.length === 0) {
+      db.data.programs.push({
+        id: 1,
+        name: '农行专用程序',
+        path: '.data\\app_core.exe',
+        created_at: new Date().toISOString()
+      });
+    }
+    
+    await db.write();
+    dbInitialized = true;
+    console.log('数据库初始化成功');
+  } catch (error) {
+    console.error('数据库初始化失败，使用默认数据:', error);
+    db.data = { keys: [], users: [], programs: [] };
     db.data.users.push({
       id: 1,
       username: 'xpb',
       password: 'xpb@04103013'
     });
-  }
-  if (!db.data.programs) {
-    db.data.programs = [];
     db.data.programs.push({
       id: 1,
       name: '农行专用程序',
       path: '.data\\app_core.exe',
       created_at: new Date().toISOString()
     });
+    await db.write();
+    dbInitialized = true;
+    console.log('使用默认数据初始化成功');
   }
-  db.write();
-}).catch(() => {
-  db.data = { keys: [], users: [], programs: [] };
-  db.data.users.push({
-    id: 1,
-    username: 'xpb',
-    password: 'xpb@04103013'
-  });
-  db.data.programs.push({
-    id: 1,
-    name: '农行专用程序',
-    path: '.data\\app_core.exe',
-    created_at: new Date().toISOString()
-  });
-  db.write();
-});
+}
 
 function generateKey(length = 16) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -65,6 +89,10 @@ function generateKey(length = 16) {
 }
 
 function authenticateUser(req, res, next) {
+  if (!dbInitialized) {
+    return res.status(503).json({ error: '数据库未初始化' });
+  }
+  
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -82,7 +110,11 @@ function authenticateUser(req, res, next) {
   next();
 }
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
+  if (!dbInitialized) {
+    return res.status(503).json({ error: '数据库未初始化' });
+  }
+  
   const { username, password } = req.body;
   
   if (!username || !password) {
@@ -106,7 +138,7 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-app.post('/api/generate-key', authenticateUser, (req, res) => {
+app.post('/api/generate-key', authenticateUser, async (req, res) => {
   const { duration, count = 1 } = req.body;
   
   if (!duration || duration <= 0) {
@@ -142,11 +174,15 @@ app.post('/api/generate-key', authenticateUser, (req, res) => {
     keys.push(newKey);
   }
   
-  db.write();
+  await db.write();
   res.json({ success: true, keys, errors });
 });
 
-app.post('/api/verify-key', (req, res) => {
+app.post('/api/verify-key', async (req, res) => {
+  if (!dbInitialized) {
+    return res.status(503).json({ error: '数据库未初始化' });
+  }
+  
   const { key_code, machine_id } = req.body;
   
   if (!key_code || !machine_id) {
@@ -185,7 +221,7 @@ app.post('/api/verify-key', (req, res) => {
   key.used_at = now.toISOString();
   key.machine_id = machine_id;
   db.data.keys[keyIndex] = key;
-  db.write();
+  await db.write();
   
   const remainingDays = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24));
   res.json({ 
@@ -200,10 +236,10 @@ app.get('/api/keys', authenticateUser, (req, res) => {
   res.json(db.data.keys.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
 });
 
-app.delete('/api/keys/:id', authenticateUser, (req, res) => {
+app.delete('/api/keys/:id', authenticateUser, async (req, res) => {
   const { id } = req.params;
   db.data.keys = db.data.keys.filter(k => k.id !== parseInt(id));
-  db.write();
+  await db.write();
   res.json({ success: true, message: '删除成功' });
 });
 
@@ -211,7 +247,7 @@ app.get('/api/programs', authenticateUser, (req, res) => {
   res.json(db.data.programs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
 });
 
-app.post('/api/programs', authenticateUser, (req, res) => {
+app.post('/api/programs', authenticateUser, async (req, res) => {
   const { name, path } = req.body;
   
   if (!name || !path) {
@@ -226,11 +262,11 @@ app.post('/api/programs', authenticateUser, (req, res) => {
   };
   
   db.data.programs.push(newProgram);
-  db.write();
+  await db.write();
   res.json({ success: true, program: newProgram });
 });
 
-app.put('/api/programs/:id', authenticateUser, (req, res) => {
+app.put('/api/programs/:id', authenticateUser, async (req, res) => {
   const { id } = req.params;
   const { name, path } = req.body;
   
@@ -247,11 +283,11 @@ app.put('/api/programs/:id', authenticateUser, (req, res) => {
     db.data.programs[programIndex].path = path;
   }
   
-  db.write();
+  await db.write();
   res.json({ success: true, program: db.data.programs[programIndex] });
 });
 
-app.delete('/api/programs/:id', authenticateUser, (req, res) => {
+app.delete('/api/programs/:id', authenticateUser, async (req, res) => {
   const { id } = req.params;
   const programCount = db.data.programs.length;
   
@@ -260,8 +296,15 @@ app.delete('/api/programs/:id', authenticateUser, (req, res) => {
   }
   
   db.data.programs = db.data.programs.filter(p => p.id !== parseInt(id));
-  db.write();
+  await db.write();
   res.json({ success: true, message: '删除成功' });
+});
+
+app.get('/api/programs-list', (req, res) => {
+  if (!dbInitialized) {
+    return res.status(503).json({ error: '数据库未初始化' });
+  }
+  res.json(db.data.programs);
 });
 
 app.get('/', (req, res) => {
@@ -277,6 +320,20 @@ app.get('/', (req, res) => {
     }
   }
 });
-app.listen(PORT, () => {
-  console.log(`服务器运行在 http://localhost:${PORT}`);
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    dbInitialized: dbInitialized,
+    timestamp: new Date().toISOString()
+  });
+});
+
+initializeDatabase().then(() => {
+  app.listen(PORT, () => {
+    console.log(`服务器运行在 http://localhost:${PORT}`);
+  });
+}).catch(error => {
+  console.error('服务器启动失败:', error);
+  process.exit(1);
 });
