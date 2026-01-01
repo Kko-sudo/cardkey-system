@@ -264,10 +264,19 @@ app.delete('/api/programs/:id', authenticateUser, (req, res) => {
   res.json({ success: true, message: '删除成功' });
 });
 
-app.get('/api/programs-list', (req, res) => {
-  res.json(db.data.programs);
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    const rootIndexPath = path.join(__dirname, 'index.html');
+    if (fs.existsSync(rootIndexPath)) {
+      res.sendFile(rootIndexPath);
+    } else {
+      res.status(404).send('index.html not found');
+    }
+  }
 });
-
 app.listen(PORT, () => {
   console.log(`服务器运行在 http://localhost:${PORT}`);
 });
